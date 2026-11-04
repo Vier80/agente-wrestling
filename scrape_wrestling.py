@@ -70,6 +70,31 @@ def real(value):
     return value
 
 
+def fix_encoding(s):
+    """Ripara le lettere accentate rovinate (es. 'NoÃ©mi' -> 'Noémi').
+
+    La risposta dati non dichiara la codifica, quindi il browser la legge come testo
+    Windows-1252 invece che UTF-8. Se il testo e' gia' corretto lo lascia com'e'.
+    """
+    raw = bytearray()
+    for ch in s:
+        o = ord(ch)
+        if o < 128:
+            raw.append(o)
+            continue
+        try:
+            raw += ch.encode("cp1252")
+        except UnicodeEncodeError:
+            if o < 256:
+                raw.append(o)
+            else:
+                return s
+    try:
+        return raw.decode("utf-8")
+    except UnicodeDecodeError:
+        return s
+
+
 def parse_fights(text):
     """Estrae gli incontri dalla risposta dati della pagina."""
     fights = []
@@ -175,7 +200,7 @@ def collect_event(url):
         try:
             req = resp.request
             if req.method == "POST" and req.headers.get("next-action"):
-                captures.append(resp.text())
+                captures.append(fix_encoding(resp.text()))
         except Exception:
             pass
 
