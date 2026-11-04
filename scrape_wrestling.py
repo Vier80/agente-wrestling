@@ -12,6 +12,7 @@ import os
 import re
 import sys
 import time
+import traceback
 from urllib.parse import urlparse
 
 import requests
@@ -262,7 +263,10 @@ def collect_event(url):
                 if not wait_new(n):
                     print(f"    {label}: nessuna risposta dalla pagina entro 30 secondi")
             settle(20)
-        browser.close()
+        try:
+            browser.close()
+        except Exception:
+            pass
 
     fights, seen = [], set()
     for text in captures:
@@ -411,6 +415,8 @@ def main():
                 create_row(mapping, m)
                 done.add(m["id"])
                 added += 1
+                if added % 50 == 0:
+                    print(f"  ... scritte {added} righe", flush=True)
                 time.sleep(0.4)
             except RuntimeError as e:
                 print(f"  Errore su {m['p1']} vs {m['p2']}: {e}")
@@ -424,4 +430,16 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    # Uscita forzata: se resta appeso un processo del browser, il lavoro viene
+    # comunque chiuso subito invece di restare "In progress" su GitHub.
+    exit_code = 0
+    try:
+        main()
+    except SystemExit as e:
+        exit_code = e.code if isinstance(e.code, int) else 1
+    except Exception:
+        traceback.print_exc()
+        exit_code = 1
+    sys.stdout.flush()
+    sys.stderr.flush()
+    os._exit(exit_code)
