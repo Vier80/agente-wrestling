@@ -143,11 +143,37 @@ def list_styles(page):
     return ordered, current
 
 
+def signature(found):
+    return frozenset((m["round"], m["p1"], m["p2"]) for m in found)
+
+
+def read_category(page, previous_sig):
+    """Aspetta che la categoria selezionata sia davvero caricata e stabile, poi la legge.
+
+    Controlla ogni 2 secondi (fino a 16): il contenuto deve comparire, non deve essere
+    ancora quello della categoria precedente e deve restare uguale in due letture di fila.
+    Se dopo l'attesa non c'e' nulla, la categoria viene considerata senza incontri conclusi.
+    """
+    last = None
+    for _ in range(8):
+        page.wait_for_timeout(2000)
+        found = parse_bracket(page.content())
+        sig = signature(found)
+        if found and sig == previous_sig:
+            last = None          # e' ancora la categoria precedente: continuo ad aspettare
+            continue
+        if found and sig == last:
+            return found, sig    # contenuto stabile
+        last = sig if found else None
+    return [], None
+
+
 def collect_event(url):
     """Passa in rassegna stili e categorie di peso dell'evento e restituisce gli incontri."""
     slug = urlparse(url).path.strip("/").split("/")[-1]
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     matches = []
+    previous_sig = None
     with sync_playwright() as p:
         browser = p.chromium.launch()
         page = browser.new_page(viewport={"width": 1400, "height": 2000})
@@ -179,12 +205,17 @@ def collect_event(url):
                         if btn.get_attribute("data-variant") == "default":
                             break
                         page.wait_for_timeout(1000)
-                    page.wait_for_timeout(3000)
-                    found = parse_bracket(page.content())
+                    found, sig = read_category(page, previous_sig)
+                    if found:
+                        previous_sig = sig
                 except Exception as e:
                     print(f"    Categoria n.{i + 1}: problema ({e})")
                     continue
                 print(f"    {weight}: {len(found)} incontri conclusi")
+                if DRY_RUN:
+                    for m in found[:2]:
+                        print(f"        es.: {m['round']} | {m['p1']} ({m['noc1']}) vs "
+                              f"{m['p2']} ({m['noc2']}) | {m['score']}")
                 for m in found:
                     m.update({
                         "gender": gender, "style": style, "weight": weight,
@@ -299,9 +330,6 @@ def main():
         new = [m for m in unique.values() if m["id"] not in done]
         print(f"  Incontri conclusi: {len(unique)}, nuovi: {len(new)}")
         if DRY_RUN:
-            for m in new[:12]:
-                print(f"  [{m['gender']}] {m['style']} {m['weight']} | {m['round']} | "
-                      f"{m['p1']} ({m['noc1']}) vs {m['p2']} ({m['noc2']}) | {m['score']} | {m['date']}")
             continue
         for m in new:
             try:
@@ -313,7 +341,7 @@ def main():
                 print(f"  Errore su {m['p1']} vs {m['p2']}: {e}")
                 errors += 1
     if DRY_RUN:
-        print("\nProva terminata (mostrati solo i primi 12 incontri nuovi).")
+        print("\nProva terminata (per ogni categoria sono mostrati due incontri di esempio).")
     else:
         print(f"\nFatto. Righe aggiunte: {added}. Errori: {errors}.")
     if errors:
