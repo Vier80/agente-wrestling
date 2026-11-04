@@ -1,4 +1,3 @@
 # Una pagina evento UWW per riga (anche con i parametri dopo il ?). Le righe che iniziano con # sono ignorate.
 # Tieni solo gli eventi in corso o recenti: ogni evento richiede qualche minuto di lettura.
-https://uww.org/events/polyak-imre-varga-janos-kozma-istvan-memorial?competition=1f17509b-9c28-68de-a4ac-db14a3d1319e&age=senior&style=fs&weight=1f17509b-9f56-6e84-8a8c-cf9c5cc7443f
 https://uww.org/events/senior-world-championships-0?competition=1f1c4677-4601-6b96-8f79-6dbeaeefb0e8&age=senior&style=fs&weight=1f1c4677-4b74-6ede-91b5-af6c1dd9c347
