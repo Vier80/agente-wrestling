@@ -10,7 +10,15 @@
 # altrimenti l'agente non riconosce le righe esistenti.
 #
 # Ogni evento richiede qualche minuto di lettura: dopo la modalità "completa" tieni qui solo
-# gli eventi in corso o recenti.
+# gli eventi in corso o recenti (basta mettere # davanti alle righe dei tornei vecchi).
+#
+# Tutti e 9 i tornei del db al 13/11/2026, in ordine di data (righe proposte dalla Solo prova):
+https://uww.org/events/islamic-solidarity-games?competition=1f0c3ba9-4137-64a0-bca2-9f9de2985915&age=senior&style=fs&weight=1f0c3bc2-da8a-6a9e-b65e-7bda34f5f8d5 ; Giochi continentali
+https://uww.org/events/zagreb-open-4?competition=1f0f6860-c6d0-6cc4-accc-fb0e739a0b89&age=senior&style=fs&weight=1f0f6860-cb68-6534-8c97-bb19103cd1a2 ; Ranking Series
+https://uww.org/events/muhamet-malo-3?competition=1f107068-7134-6fa2-ad71-55a93b810298&age=senior&style=fs&weight=1f107068-75d2-632a-93e6-514a06be8d9c ; Ranking Series
+https://uww.org/events/senior-asian-championships-0?competition=1f126752-7bc3-65e4-8b5e-5bad95e620b5&age=senior&style=fs&weight=1f126752-81ae-6d5a-88ae-25bc2ec9b754 ; Campionati continentali
+https://uww.org/events/senior-european-championships-0?competition=1f131758-c698-6108-8ba7-7b1a8e1dff08&age=senior&style=fs&weight=1f131758-cdfc-6386-be20-0d04d3a39aac ; Campionati continentali
+https://uww.org/events/ulaanbaatar-open-0?competition=1f15514a-08e2-6f2c-985d-8bebc61d0179&age=senior&style=fs&weight=1f15514a-0cc2-6b42-aa04-cffb4b017818 ; Ranking Series
+https://uww.org/events/polyak-imre-varga-janos-kozma-istvan-memorial?competition=1f17509b-9c28-68de-a4ac-db14a3d1319e&age=senior&style=fs&weight=1f17509b-9f56-6e84-8a8c-cf9c5cc7443f ; Ranking Series
 https://uww.org/events/asian-games-1?competition=1f1bb100-4ba8-6836-83c9-211373239b43&age=senior&style=fs&weight=1f1bba57-f836-6cf0-b203-5916001c59ed ; Giochi continentali
 https://uww.org/events/senior-world-championships-0?competition=1f1c4677-4601-6b96-8f79-6dbeaeefb0e8&age=senior&style=fs&weight=1f1c4677-4b74-6ede-91b5-af6c1dd9c347 ; Mondiali
-https://uww.org/events/polyak-imre-varga-janos-kozma-istvan-memorial?competition=1f17509b-9c28-68de-a4ac-db14a3d1319e&age=senior&style=fs&weight=1f17509b-9f56-6e84-8a8c-cf9c5cc7443f ; Ranking Series

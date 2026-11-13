@@ -1,4 +1,8 @@
-"""Agente Wrestling – risultati UWW (versione 2 del 13/11/2026, scheda 22, sessione 1)
+"""Agente Wrestling – risultati UWW (versione 2.1 del 13/11/2026, schede 22 e 23, sessione 1)
+
+Versione 2.1 (dopo la Solo prova del 13/11/2026): una riga esistente si completa anche quando
+UWW ha cambiato nel frattempo la grafia di UNO dei due lottatori (l'altro nome identifica
+il lato con certezza); il registro segnala gli incontri doppi in Notion (stesso ID Univoco).
 
 Che cosa fa
 -----------
@@ -602,13 +606,18 @@ def da_completare(riga, m):
     Restituisce un dizionario {chiave: valore} (vuoto se non c'è nulla da fare),
     oppure None se i nomi della riga non corrispondono a quelli letti da UWW.
     Controllo di sicurezza: ID UWW 1 va al lottatore scritto in Player 1 della riga.
-    Se UWW oggi elenca i due lottatori in ordine inverso, i codici vengono scambiati.
+    - se i due nomi coincidono, nello stesso ordine o invertiti, l'abbinamento è sicuro;
+    - NOVITÀ 2.1: se coincide UN SOLO nome, l'abbinamento si ricava da quello. Succede quando
+      UWW ha cambiato nel frattempo la grafia di un lottatore (es. "Vladislav BAJCAJEV" in
+      Notion, "Vlagyiszlav BAJCAJEV" oggi su UWW): l'incontro è lo stesso (stesso ID Univoco)
+      e l'altro lottatore lo identifica con certezza;
+    - se non coincide nessuno dei due nomi, la riga non viene toccata.
     """
     r1, r2, n1, n2 = norm(riga["p1"]), norm(riga["p2"]), norm(m["p1"]), norm(m["p2"])
-    if (r1, r2) == (n1, n2):
-        codici = (m["id1"], m["id2"])
-    elif (r1, r2) == (n2, n1):
-        codici = (m["id2"], m["id1"])
+    if (r1, r2) == (n1, n2) or (r1 == n1 and r2 != n2 and r2 != n1) or (r2 == n2 and r1 != n1 and r1 != n2):
+        codici = (m["id1"], m["id2"])       # stesso ordine (anche con un solo nome uguale)
+    elif (r1, r2) == (n2, n1) or (r1 == n2 and r2 != n1 and r2 != n2) or (r2 == n1 and r1 != n2 and r1 != n1):
+        codici = (m["id2"], m["id1"])       # ordine invertito (anche con un solo nome uguale)
     else:
         return None
     nuovi = {}
@@ -755,13 +764,19 @@ def main():
         nuovi = [m for m in unique.values() if m["id"] not in presenti]
 
         # righe esistenti da completare (calcolate sempre, scritte solo in modalità completa)
-        lavori, nomi_diversi = [], []
+        lavori, nomi_diversi, un_nome, doppie = [], [], [], []
         for m in unique.values():
-            for riga in presenti.get(m["id"], []):
+            righe_uid = presenti.get(m["id"], [])
+            if len(righe_uid) > 1:      # stesso ID Univoco in più righe: incontro doppio in Notion
+                doppie.append((m["id"], [r["page"] for r in righe_uid]))
+            for riga in righe_uid:
                 d = da_completare(riga, m)
                 if d is None:
                     nomi_diversi.append(f"{riga['p1']} vs {riga['p2']} (Notion) ≠ {m['p1']} vs {m['p2']} (UWW)")
-                elif d:
+                    continue
+                if {norm(riga["p1"]), norm(riga["p2"])} != {norm(m["p1"]), norm(m["p2"])}:
+                    un_nome.append(f"{riga['p1']} vs {riga['p2']} (Notion) = {m['p1']} vs {m['p2']} (UWW)")
+                if d:
                     lavori.append((riga["page"], d))
         non_ritrovate = [uid for uid in presenti if uid.startswith(slug + "|") and uid not in unique]
         tot_nuovi += len(nuovi)
@@ -771,10 +786,20 @@ def main():
         senza_id = sum(1 for m in unique.values() for c in ("id1", "id2") if not m[c])
         print(f"  {torneo}: incontri conclusi {len(unique)} · nuovi {len(nuovi)} · "
               f"righe esistenti da completare {len(lavori)} · lottatori senza codice {senza_id}")
-        if nomi_diversi:
-            print(f"  ATTENZIONE: {len(nomi_diversi)} righe con nomi diversi tra Notion e UWW (non toccate):")
-            for t in nomi_diversi[:5]:
+        if un_nome:
+            print(f"  Nota: {len(un_nome)} righe abbinate grazie a un solo nome (l'altro lottatore ha oggi "
+                  f"una grafia diversa su UWW; in Notion il nome resta com'era), es.:")
+            for t in un_nome[:5]:
                 print(f"    · {t}")
+        if nomi_diversi:
+            print(f"  ATTENZIONE: {len(nomi_diversi)} righe con ENTRAMBI i nomi diversi tra Notion e UWW (non toccate):")
+            for t in nomi_diversi[:10]:
+                print(f"    · {t}")
+        if doppie:
+            print(f"  ATTENZIONE: {len(doppie)} incontri compaiono in più righe di Notion (stesso ID Univoco). "
+                  f"Tienine una e cancella le altre:")
+            for uid, pagine in doppie[:10]:
+                print(f"    · {uid}: " + "  ".join("https://www.notion.so/" + p.replace("-", "") for p in pagine))
         if non_ritrovate:
             print(f"  Nota: {len(non_ritrovate)} righe di questo evento in Notion non sono più nei dati UWW "
                   f"(restano senza codice), es. {non_ritrovate[0]}")
