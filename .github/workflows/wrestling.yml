@@ -1,28 +1,71 @@
 name: Agente Wrestling
 
+# Repo dell'agente dei risultati UWW (versione 2 del 13/11/2026, scheda 22, sessione 1).
+#
+# Parte in due modi:
+#   - ogni sera alle 21 UTC (22 ora italiana d'inverno, 23 d'estate): lancio VERO in modalità
+#     "aggiungi" (scrive solo gli incontri nuovi degli eventi elencati in eventi.txt);
+#   - a mano: Actions -> Agente Wrestling -> Run workflow, scegliendo solo_prova e modalita.
+#
+# Modalità (scheda 22 §11.3):
+#   aggiungi = scrive solo gli incontri nuovi (con ID UWW 1, ID UWW 2 e Tipo Torneo);
+#   completa = in più, nelle righe già presenti, scrive ID UWW 1, ID UWW 2 e Tipo Torneo
+#              SOLO se sono vuote. Non archivia nulla e non tocca le altre colonne.
 on:
   schedule:
     - cron: "0 21 * * *"
   workflow_dispatch:
     inputs:
       solo_prova:
-        description: "Solo prova (non scrive su Notion)"
+        description: "Solo prova: legge UWW e Notion e stampa le diagnosi, senza scrivere su Notion"
         type: boolean
         default: true
+      modalita:
+        description: "aggiungi = solo incontri nuovi; completa = in più completa le righe già presenti"
+        type: choice
+        options:
+          - aggiungi
+          - completa
+        default: aggiungi
+
+# due lanci contemporanei (es. quello serale e uno a mano) scriverebbero doppioni:
+# il secondo aspetta che il primo finisca
+concurrency:
+  group: agente-wrestling
+  cancel-in-progress: false
 
 jobs:
   aggiorna:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    # la modalità "completa" sui 9 tornei può durare circa 1,5-2 ore; lo script si ferma da
+    # solo a 165 minuti (TEMPO_MAX_MINUTI) per chiudere in ordine prima di questo limite
+    timeout-minutes: 180
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install -r requirements.txt
-      - run: playwright install --with-deps chromium
-      - run: python -u scrape_wrestling.py
+      - name: Installa il necessario
+        run: pip install -r requirements.txt
+      - name: Installa il browser per Playwright
+        run: playwright install --with-deps chromium
+      - name: Leggi i risultati UWW
+        # "shell: bash" fa sì che un errore dello script colori di rosso il lancio anche con "tee"
+        shell: bash
         env:
           NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
           NOTION_DATABASE_ID: ${{ secrets.NOTION_DATABASE_ID }}
-          DRY_RUN: ${{ github.event.inputs.solo_prova }}
+          # lancio serale (schedule): sempre lancio vero; lancio a mano: quello che scegli.
+          # format('{0}', ...) trasforma vero/falso in testo "true"/"false"
+          DRY_RUN: ${{ github.event_name == 'schedule' && 'false' || format('{0}', inputs.solo_prova) }}
+          MODALITA: ${{ inputs.modalita || 'aggiungi' }}
+          TEMPO_MAX_MINUTI: "165"
+        # "tee" scrive il log a video e, insieme, nel file rapporto_wrestling.txt
+        run: python -u scrape_wrestling.py | tee rapporto_wrestling.txt
+      - name: Conserva il rapporto (Artifacts in fondo alla pagina del lancio)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rapporto-wrestling
+          path: rapporto_wrestling.txt
+          if-no-files-found: ignore
