@@ -1,6 +1,7 @@
 name: Agente Wrestling
 
-# Repo dell'agente dei risultati UWW (versione 2 del 13/11/2026, scheda 22, sessione 1).
+# Repo dell'agente dei risultati UWW, file .github/workflows/wrestling.yml
+# (versione 3 del 14/11/2026, scheda 24, sessione 3 dell'ELO wrestling).
 #
 # Parte in due modi:
 #   - ogni sera alle 21 UTC (22 ora italiana d'inverno, 23 d'estate): lancio VERO in modalità
@@ -11,13 +12,16 @@ name: Agente Wrestling
 #   aggiungi = scrive solo gli incontri nuovi (con ID UWW 1, ID UWW 2 e Tipo Torneo);
 #   completa = in più, nelle righe già presenti, scrive ID UWW 1, ID UWW 2 e Tipo Torneo
 #              SOLO se sono vuote. Non archivia nulla e non tocca le altre colonne.
+#
+# NOVITÀ della versione 3: alla fine di un lancio vero che ha scritto qualcosa in Notion,
+# avvia il workflow "ELO Wrestling" del repo map-q-la28 (scheda 22 §3).
 on:
   schedule:
     - cron: "0 21 * * *"
   workflow_dispatch:
     inputs:
       solo_prova:
-        description: "Solo prova: legge UWW e Notion e stampa le diagnosi, senza scrivere su Notion"
+        description: "Solo prova: legge UWW e Notion e stampa le diagnosi, senza scrivere su Notion (e senza avviare l'ELO)"
         type: boolean
         default: true
       modalita:
@@ -69,3 +73,48 @@ jobs:
           name: rapporto-wrestling
           path: rapporto_wrestling.txt
           if-no-files-found: ignore
+
+      # ------------------------------------------------------------------ NOVITÀ della versione 3
+      - name: Avvia il calcolo ELO (workflow "ELO Wrestling" nel repo map-q-la28)
+        # Quando parte:
+        #   - solo nel lancio vero: quello serale (schedule) oppure quello a mano senza spunta su solo_prova;
+        #   - anche dopo errori parziali o l'arresto per il limite di tempo: l'ELO viene ricalcolato da zero
+        #     sulle righe presenti in Notion. "!cancelled()" = sempre, tranne se il lancio è annullato a mano;
+        #   - solo se l'agente ha davvero scritto o completato righe (lo legge dall'ultima riga del rapporto):
+        #     così il lancio di ogni sera, che di solito non trova incontri nuovi, non ricalcola l'ELO per niente.
+        if: ${{ !cancelled() && (github.event_name == 'schedule' || format('{0}', inputs.solo_prova) == 'false') }}
+        env:
+          # token con permesso "Actions: Read and write" sul repo map-q-la28 (lo stesso dell'agente judo)
+          PAGES_TOKEN: ${{ secrets.PAGES_TOKEN }}
+        run: |
+          # riga finale del rapporto, es. "Righe nuove scritte: 286 · righe completate: 0 · errori: 0 · minuti: 12"
+          riga=$(grep -m1 "Righe nuove scritte:" rapporto_wrestling.txt || true)
+          nuove=$(echo "$riga" | sed -n 's/.*Righe nuove scritte: \([0-9]*\).*/\1/p')
+          completate=$(echo "$riga" | sed -n 's/.*righe completate: \([0-9]*\).*/\1/p')
+          if [ -z "$riga" ]; then
+            echo "Nel rapporto non c'è il riepilogo finale (l'agente si è fermato prima): l'ELO non parte."
+            echo "Se serve, lancialo a mano: repo map-q-la28 -> Actions -> ELO Wrestling -> Run workflow, senza spunta su solo_prova."
+            exit 0
+          fi
+          if [ "${nuove:-0}" -eq 0 ] && [ "${completate:-0}" -eq 0 ]; then
+            echo "Nessuna riga nuova o completata in Notion: l'ELO non cambia, quindi non lo ricalcolo."
+            exit 0
+          fi
+          if [ -z "$PAGES_TOKEN" ]; then
+            echo "ATTENZIONE: il segreto PAGES_TOKEN non c'è in questo repo, quindi il calcolo ELO non parte."
+            echo "Lancialo a mano: repo map-q-la28 -> Actions -> ELO Wrestling -> Run workflow, senza spunta su solo_prova."
+            exit 1
+          fi
+          # gh è il programma di GitHub già installato sui server di Actions.
+          # "elo-wrestling.yml" è il nome del FILE del workflow; -f solo_prova=false = lancio vero.
+          if GH_TOKEN="$PAGES_TOKEN" gh workflow run elo-wrestling.yml \
+               --repo "${{ github.repository_owner }}/map-q-la28" \
+               -f solo_prova=false; then
+            echo "Righe nuove: ${nuove:-0}, completate: ${completate:-0}. Ho avviato 'ELO Wrestling' nel repo map-q-la28."
+            echo "Lo trovi in map-q-la28 -> Actions -> ELO Wrestling (dura pochi minuti)."
+          else
+            echo "ATTENZIONE: non sono riuscito ad avviare 'ELO Wrestling'."
+            echo "Cause probabili: al token PAGES_TOKEN manca il permesso 'Actions: Read and write' su map-q-la28,"
+            echo "oppure il token è scaduto. Intanto lancia 'ELO Wrestling' a mano, senza spunta su solo_prova."
+            exit 1
+          fi
