@@ -1,4 +1,11 @@
-"""Agente Wrestling – risultati UWW (versione 2.1 del 13/11/2026, schede 22 e 23, sessione 1)
+"""Agente Wrestling – risultati UWW (versione 2.2 del 16/11/2026, schede 22, 23 e 28 §3)
+
+Versione 2.2 (16/11/2026): l'API di Notion restituisce al massimo 10.000 righe per ricerca.
+La lettura delle righe già presenti (per riconoscere gli incontri già scritti) era una ricerca
+sola: oltre le 10.000 righe l'agente non avrebbe visto le altre e avrebbe scritto DOPPIONI.
+Ora la lettura è divisa per Stile (Freestyle, Greco-Roman, Women's Wrestling, più due ricerche
+di controllo per uno stile diverso o vuoto). Se una ricerca arriva a 10.000 righe, l'agente si
+ferma con un messaggio, anche in "Solo prova", senza scrivere nulla. Il resto è invariato.
 
 Versione 2.1 (dopo la Solo prova del 13/11/2026): una riga esistente si completa anche quando
 UWW ha cambiato nel frattempo la grafia di UNO dei due lottatori (l'altro nome identifica
@@ -64,6 +71,11 @@ except ValueError:
     TEMPO_MAX_MINUTI = 165.0
 
 PAUSA_NOTION = 0.35      # secondi tra una scrittura e l'altra (Notion accetta circa 3 richieste al secondo)
+# NOVITÀ 2.2: una ricerca dell'API Notion restituisce al massimo 10.000 righe (verificato il 16/11/2026,
+# scheda 28 §3). La lettura delle righe esistenti è quindi divisa per Stile (vedi fette_per_stile).
+LIMITE_NOTION = 10000
+# Valori ESATTI della colonna "Stile" nel db (scheda 22 §2.1): una ricerca per ciascuno
+STILI_DB = ["Freestyle", "Greco-Roman", "Women's Wrestling"]
 SECONDI_PER_RIGA = 0.75  # stima del tempo reale per riga (pausa + risposta di Notion), per il preventivo
 
 NOTION_HEADERS = {
@@ -132,6 +144,14 @@ CHIAVI_ID_ATLETA = ("id", "uuid", "athlete_id", "person_id")
 def die(msg):
     print(f"ERRORE: {msg}")
     sys.exit(1)
+
+
+class LimiteNotion(Exception):
+    """Una ricerca in Notion è arrivata a 10.000 righe (NOVITÀ 2.2).
+
+    È un errore a parte, e non un semplice die(), perché main() in "Solo prova" lascia
+    proseguire gli altri errori di lettura del db: questo invece deve fermare SEMPRE l'agente.
+    """
 
 
 def minuti_trascorsi():
@@ -547,31 +567,73 @@ def valore_prop(prop):
     return ""
 
 
+def fette_per_stile(nome_col, tipo_col):
+    """Le ricerche in cui dividere la lettura del db (NOVITÀ 2.2).
+
+    Restituisce un elenco di (etichetta, filtro Notion):
+      - una ricerca per ciascuno dei 3 stili (Freestyle, Greco-Roman, Women's Wrestling);
+      - "altri stili": righe con uno Stile diverso dai tre (oggi nessuna);
+      - "Stile vuoto": righe senza Stile (oggi nessuna).
+    Le ultime due sono una rete di sicurezza: senza di esse una riga con uno stile nuovo
+    resterebbe invisibile e verrebbe riscritta (doppione).
+    Il filtro si adatta al tipo della colonna: "select" (quello di oggi) oppure "rich_text".
+    """
+    t = tipo_col if tipo_col in ("select", "rich_text") else "select"
+    fette = [(s, {"property": nome_col, t: {"equals": s}}) for s in STILI_DB]
+    fette.append(("altri stili", {"and": [{"property": nome_col, t: {"does_not_equal": s}} for s in STILI_DB]
+                                  + [{"property": nome_col, t: {"is_not_empty": True}}]}))
+    fette.append(("Stile vuoto", {"property": nome_col, t: {"is_empty": True}}))
+    return fette
+
+
 def leggi_righe_esistenti(mapping):
     """Tutte le righe del db, raggruppate per ID Univoco.
 
     Restituisce  ID Univoco -> [ {page, p1, p2, id1, id2, kind, torneo, fonte}, ... ]
     (di norma una sola riga per ID Univoco).
+
+    NOVITÀ 2.2: l'API di Notion restituisce al massimo 10.000 righe per ricerca. Con una ricerca
+    sola, oltre quel numero l'agente non vedrebbe le altre righe e le scriverebbe di nuovo
+    (doppioni). Per questo la lettura è divisa per Stile (fette_per_stile). Se una ricerca arriva
+    a 10.000 righe l'agente si ferma: bisognerà dividere ancora (per esempio per Torneo).
     """
     col = {k: mapping[k][0] for k in ("id", "p1", "p2", "id1", "id2", "kind", "tournament", "source")}
-    righe, senza_id, cursor = defaultdict(list), 0, None
-    while True:
-        body = {"page_size": 100}
-        if cursor:
-            body["start_cursor"] = cursor
-        data = notion("POST", f"/databases/{DATABASE_ID}/query", json=body)
-        for page in data["results"]:
-            p = page["properties"]
-            v = {k: valore_prop(p.get(c)) for k, c in col.items()}
-            if not v["id"]:
-                senza_id += 1
-                continue
-            righe[v["id"]].append({"page": page["id"], "p1": v["p1"], "p2": v["p2"], "id1": v["id1"],
-                                   "id2": v["id2"], "kind": v["kind"], "torneo": v["tournament"],
-                                   "fonte": v["source"]})
-        if not data.get("has_more"):
-            break
-        cursor = data["next_cursor"]
+    nome_stile, tipo_stile = mapping["style"]
+    righe, senza_id = defaultdict(list), 0
+    viste = set()          # pagine già lette: una pagina non viene mai contata due volte
+    conteggi = []          # righe lette in ogni ricerca, per il messaggio finale
+    for etichetta, filtro in fette_per_stile(nome_stile, tipo_stile):
+        lette, cursor = 0, None
+        while True:
+            body = {"page_size": 100, "filter": filtro}
+            if cursor:
+                body["start_cursor"] = cursor
+            data = notion("POST", f"/databases/{DATABASE_ID}/query", json=body)
+            for page in data["results"]:
+                lette += 1
+                if page["id"] in viste:
+                    continue
+                viste.add(page["id"])
+                p = page["properties"]
+                v = {k: valore_prop(p.get(c)) for k, c in col.items()}
+                if not v["id"]:
+                    senza_id += 1
+                    continue
+                righe[v["id"]].append({"page": page["id"], "p1": v["p1"], "p2": v["p2"], "id1": v["id1"],
+                                       "id2": v["id2"], "kind": v["kind"], "torneo": v["tournament"],
+                                       "fonte": v["source"]})
+            if not data.get("has_more"):
+                break
+            cursor = data["next_cursor"]
+        if lette >= LIMITE_NOTION:
+            raise LimiteNotion(
+                f"Stile «{etichetta}»: {lette} righe lette, è il limite di una ricerca dell'API Notion "
+                f"({LIMITE_NOTION}). Le righe oltre il limite resterebbero invisibili e l'agente scriverebbe "
+                "DOPPIONI: mi fermo senza scrivere nulla. Bisogna dividere ancora la lettura (per esempio "
+                "per Stile e Torneo) in leggi_righe_esistenti.")
+        conteggi.append((etichetta, lette))
+    print("Righe lette da Notion per Stile: "
+          + " · ".join(f"{e} {n}" for e, n in conteggi) + f" · totale {len(viste)}")
     if senza_id:
         print(f"Nota: {senza_id} righe in Notion non hanno 'ID Univoco': lo script le lascia stare.")
     return righe
@@ -719,6 +781,8 @@ def main():
         print(f"  · {slug_di(url)} ({tipo})")
 
     # 1. stato del db (anche in prova, se il token c'è: è solo lettura)
+    #    Nota 2.2: l'errore LimiteNotion (ricerca arrivata a 10.000 righe) NON viene intercettato
+    #    qui sotto: ferma l'agente sempre, anche in "Solo prova".
     mapping, esistenti = None, None
     if NOTION_TOKEN and DATABASE_ID:
         try:
@@ -884,6 +948,9 @@ if __name__ == "__main__":
         main()
     except SystemExit as e:
         exit_code = e.code if isinstance(e.code, int) else 1
+    except LimiteNotion as e:          # NOVITÀ 2.2: limite delle 10.000 righe di Notion
+        print(f"\nERRORE: {e}")
+        exit_code = 1
     except Exception:
         traceback.print_exc()
         exit_code = 1
